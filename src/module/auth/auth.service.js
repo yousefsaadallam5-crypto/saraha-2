@@ -1,105 +1,147 @@
-import { userModel } from "../../database/modle/index.js";
-import {
-  exceptions,
-  genderEnum,
-  HashEnum,
-  myCompare,
-  myHash,
-} from "../../common/index.js";
-import { encryption } from "../../common/security/encryption.js";
+import { OAuth2Client } from "google-auth-library"
+import { exceptions, HashEnum, myCompare, myHash } from "../../common/index.js"
+import { createToken } from "../../common/security/index.js"
+import { encryption } from "../../common/security/encryption.js"
+import { userModel } from "../../database/modle/index.js"
+import configService from "../../config/config.service.js"
 
-const isRecord = (value) =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
-const validateCredentials = (data, { requireStrongPassword = false } = {}) => {
-  if (!isRecord(data)) {
-    exceptions.badRequest("A JSON object is required");
-  }
-
-  const email =
-    typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-  const password = typeof data.password === "string" ? data.password : "";
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 50) {
-    exceptions.badRequest("A valid email address is required");
-  }
-
-  if (!password) {
-    exceptions.badRequest("Password is required");
-  }
-  if (requireStrongPassword && (password.length < 8 || password.length > 128)) {
-    exceptions.badRequest("Password must be between 8 and 128 characters");
-  }
-  if (!requireStrongPassword && password.length > 1024) {
-    exceptions.badRequest("Password is too long");
-  }
-
-  return { email, password };
-};
+const createAuthResult = (user) => ({
+  user,
+  token: createToken({ payload: { sub: user.id } }),
+})
 
 export const signup = async (data) => {
-  const { email, password } = validateCredentials(data, {
-    requireStrongPassword: true,
-  });
-  const firstName =
-    typeof data.firstName === "string" ? data.firstName.trim() : "";
-  const lastName =
-    typeof data.lastName === "string" ? data.lastName.trim() : "";
-  const phone = typeof data.phone === "string" ? data.phone.trim() : "";
-
-  if (firstName.length < 3 || firstName.length > 50) {
-    exceptions.badRequest("First name must be between 3 and 50 characters");
-  }
-  if (lastName.length < 3 || lastName.length > 50) {
-    exceptions.badRequest("Last name must be between 3 and 50 characters");
-  }
-  if (!phone || phone.length > 64) {
-    exceptions.badRequest("A valid phone number is required");
+  if (
+    !data ||
+    typeof data.email !== "string" ||
+    !isValidEmail(data.email.trim()) ||
+    typeof data.password !== "string" ||
+    data.password.length < 8 ||
+    data.password.length > 128 ||
+    typeof data.firstName !== "string" ||
+    typeof data.lastName !== "string" ||
+    typeof data.phone !== "string"
+  ) {
+    exceptions.badRequest("Valid name, email, password, and phone are required")
   }
 
-  const userData = { firstName, lastName, email, password, phone };
-  if (data.gender !== undefined) {
-    const gender = Number(data.gender);
-    if (!Number.isInteger(gender) || !Object.values(genderEnum).includes(gender)) {
-      exceptions.badRequest("Gender is invalid");
-    }
-    userData.gender = gender;
-  }
-
+  const email = data.email.trim().toLowerCase()
   if (await userModel.exists({ email })) {
-    exceptions.conflict("User already exists");
+    exceptions.conflict("User already exists")
   }
 
-  userData.password = await myHash({
-    plainText: password,
-    lib: HashEnum.argon,
-  });
-  userData.phone = encryption(phone);
+  const userData = {
+    firstName: data.firstName.trim(),
+    lastName: data.lastName.trim(),
+    email,
+    password: await myHash({ plainText: data.password, lib: HashEnum.argon }),
+    phone: encryption(data.phone.trim()),
+  }
+  if (data.gender !== undefined) {
+    userData.gender = data.gender
+  }
 
+  let user
   try {
-    return await userModel.create(userData);
+    user = await userModel.create(userData)
   } catch (error) {
     if (error.code === 11000) {
-      exceptions.conflict("User already exists");
+      exceptions.conflict("User already exists")
     }
-    throw error;
+    throw error
   }
-};
 
-export const login = async (data) => {
-  const { email, password } = validateCredentials(data);
-  const user = await userModel.findOne({ email }).select("+password");
+  return createAuthResult(user)
+}
 
+export const login = async ({ email, password } = {}) => {
+  if (typeof email !== "string" || typeof password !== "string") {
+    exceptions.badRequest("Email and password are required")
+  }
+
+  const user = await userModel
+    .findOne({ email: email.trim().toLowerCase() })
+    .select("+password")
   if (
     !user ||
+    !user.password ||
     !(await myCompare({
       plainText: password,
       encrypted: user.password,
       lib: HashEnum.argon,
     }))
   ) {
-    exceptions.unauthorized("Invalid email or password");
+    exceptions.unauthorized("Invalid email or password")
   }
 
-  return user;
-};
+  return createAuthResult(user)
+}
+
+export const googleLogin = async ({ idToken, credential } = {}) => {
+  if (!configService.GOOGLE_CLIENT_ID) {
+    const error = new Error("Google login is not configured")
+    error.statusCode = 503
+    throw error
+  }
+
+  const submittedToken = idToken || credential
+  if (typeof submittedToken !== "string" || !submittedToken) {
+    exceptions.badRequest("A Google ID token is required")
+  }
+
+  let ticket
+  try {
+    ticket = await new OAuth2Client(configService.GOOGLE_CLIENT_ID).verifyIdToken({
+      idToken: submittedToken,
+      audience: configService.GOOGLE_CLIENT_ID,
+    })
+  } catch (error) {
+    if (
+      error?.response?.status === 400 ||
+      error?.response?.status === 401 ||
+      /token|jwt|signature/i.test(error?.message || "")
+    ) {
+      exceptions.unauthorized("Invalid Google ID token")
+    }
+    throw error
+  }
+
+  const googleUser = ticket.getPayload()
+  if (
+    !googleUser?.sub ||
+    !googleUser.email ||
+    googleUser.email_verified !== true
+  ) {
+    exceptions.unauthorized("Google account email must be verified")
+  }
+
+  const email = googleUser.email.trim().toLowerCase()
+  let user = await userModel.findOne({
+    $or: [{ googleId: googleUser.sub }, { email }],
+  })
+
+  if (!user) {
+    const [givenName, ...familyNames] = (googleUser.name || "").trim().split(/\s+/)
+    const firstName =
+      (googleUser.given_name || givenName || "Google").length >= 3
+        ? googleUser.given_name || givenName || "Google"
+        : "Google"
+    const familyName =
+      (googleUser.family_name || familyNames.join(" ") || "User").trim()
+    user = await userModel.create({
+      firstName,
+      lastName: familyName.length >= 3 ? familyName : "User",
+      email,
+      googleId: googleUser.sub,
+    })
+  } else if (user.googleId && user.googleId !== googleUser.sub) {
+    exceptions.conflict("This email is already linked to another Google account")
+  } else if (!user.googleId) {
+    user.googleId = googleUser.sub
+    await user.save()
+  }
+
+  return createAuthResult(user)
+}

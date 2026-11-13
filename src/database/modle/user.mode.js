@@ -1,5 +1,5 @@
-import mongoose from "mongoose";
-import { genderEnum } from "../../common/enums/index.js";
+import mongoose from "mongoose"
+import { genderEnum } from "../../common/enums/index.js"
 
 const userSchema = new mongoose.Schema(
   {
@@ -30,14 +30,23 @@ const userSchema = new mongoose.Schema(
       default: genderEnum.male,
     },
     password: {
-        type: String,
-        required: true,
-        select: false,
+      type: String,
+      required: function () {
+        return !this.googleId;
+      },
+      select: false,
     },
     phone: {
       type: String,
-      required: true,
-    }
+      required: function () {
+        return !this.googleId
+      },
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,
@@ -46,32 +55,32 @@ const userSchema = new mongoose.Schema(
     toJSON: {
       virtuals: true,
       transform: (_doc, ret) => {
-        delete ret.password;
-        delete ret.phone;
-        return ret;
+        delete ret.password
+        delete ret.phone
+        return ret
       },
     },
     toObject: {
       virtuals: true,
       transform: (_doc, ret) => {
-        delete ret.password;
-        delete ret.phone;
-        return ret;
+        delete ret.password
+        delete ret.phone
+        return ret
       },
     },
     autoIndex: true,
   }
-); 
+)
 
 userSchema
   .virtual("userName")
   .set(function (value) {
-    let [firstName, lastName] = value.split(" "); 
-    this.firstName = firstName;
-    this.lastName = lastName;
+    let [firstName, lastName] = value.split(" ")
+    this.firstName = firstName
+    this.lastName = lastName
   })
   .get(function () {
-    return `${this.firstName} ${this.lastName}`;
-  });
+    return `${this.firstName} ${this.lastName}`
+  })
 
-export const userModel = mongoose.model("user", userSchema);
+export const userModel = mongoose.model("user", userSchema)

@@ -5,4 +5,4 @@ const genderEnum = {
 
 Object.freeze(genderEnum)
 
-export { genderEnum };
+export { genderEnum }

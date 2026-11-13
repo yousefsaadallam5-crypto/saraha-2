@@ -1,6 +1,7 @@
-export { errorHandler } from "./middeleware/index.js";
-export { genderEnum, HashEnum } from "./enums/index.js";
-export { response } from "./utils/index.js";
+export { errorHandler } from "./middeleware/index.js"
+export { authenticate } from "./middeleware/index.js"
+export { genderEnum, HashEnum } from "./enums/index.js"
+export { response } from "./utils/index.js"
 export {
   badRequestException,
   conflictException,
@@ -8,5 +9,5 @@ export {
   forbiddenException,
   notFoundException,
   unauthorizedException,
-} from "./utils/exceptions.js";
-export { myHash, myCompare } from "./security/index.js";
+} from "./utils/exceptions.js"
+export { myHash, myCompare } from "./security/index.js"

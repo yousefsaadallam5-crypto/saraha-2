@@ -1,24 +1,33 @@
-import { Router } from "express";
-import { response } from "../../common/index.js";
-import { login, signup } from "./auth.service.js";
+import { Router } from "express"
+import { response } from "../../common/index.js"
+import { googleLogin, login, signup } from "./auth.service.js"
 
-export const authController = Router();
+export const authController = Router()
 
 authController.post("/signup", async (req, res) => {
-  const user = await signup(req.body);
+  const result = await signup(req.body)
   return response({
     res,
-    data: user,
+    data: { ...result.user.toJSON(), token: result.token },
     status: 201,
     message: "User created successfully",
-  });
-});
+  })
+})
 
 authController.post("/login", async (req, res) => {
-  const user = await login(req.body);
+  const result = await login(req.body)
   return response({
     res,
-    data: user,
+    data: result.token,
     message: "User logged in successfully",
-  });
-});
+  })
+})
+
+authController.post("/google", async (req, res) => {
+  const result = await googleLogin(req.body)
+  return response({
+    res,
+    data: result.token,
+    message: "User logged in successfully",
+  })
+})

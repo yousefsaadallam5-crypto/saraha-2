@@ -1,15 +1,15 @@
-import { config } from "dotenv";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { getCipherInfo } from "node:crypto";
+import { config } from "dotenv"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { getCipherInfo } from "node:crypto"
 
-const configDirectory = dirname(fileURLToPath(import.meta.url));
-const nodeEnvironment = process.env.NODE_ENV || "development";
+const configDirectory = dirname(fileURLToPath(import.meta.url))
+const nodeEnvironment = process.env.NODE_ENV || "development"
 
 config({
   path: resolve(configDirectory, `../.env.${nodeEnvironment}`),
   quiet: true,
-});
+})
 
 const configService = {
   port: Number(process.env.PORT || 3000),
@@ -18,33 +18,36 @@ const configService = {
   ENC_KEY: process.env.ENC_KEY,
   ENC_IV_LENGTH: Number(process.env.ENC_IV_LENGTH),
   ENC_ALGO: process.env.ENC_ALGO,
-};
+  JWT_SECRET: process.env.JWT_SECRET,
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+}
 
 export const validateEncryptionConfig = () => {
   if (typeof configService.ENC_ALGO !== "string" || !configService.ENC_ALGO) {
-    throw new Error("ENC_ALGO must be configured");
+    throw new Error("ENC_ALGO must be configured")
   }
 
-  const cipherInfo = getCipherInfo(configService.ENC_ALGO);
+  const cipherInfo = getCipherInfo(configService.ENC_ALGO)
   if (!cipherInfo) {
-    throw new Error("ENC_ALGO must name a supported cipher");
+    throw new Error("ENC_ALGO must name a supported cipher")
   }
 
   if (!/^(?:[0-9a-f]{2})+$/i.test(configService.ENC_KEY || "")) {
-    throw new Error("ENC_KEY must be a non-empty hexadecimal key");
+    throw new Error("ENC_KEY must be a non-empty hexadecimal key")
   }
 
   if (Buffer.from(configService.ENC_KEY, "hex").length !== cipherInfo.keyLength) {
-    throw new Error("ENC_KEY has an invalid length for ENC_ALGO");
+    throw new Error("ENC_KEY has an invalid length for ENC_ALGO")
   }
 
   if (
     !Number.isInteger(configService.ENC_IV_LENGTH) ||
     configService.ENC_IV_LENGTH !== cipherInfo.ivLength
   ) {
-    throw new Error("ENC_IV_LENGTH is invalid for ENC_ALGO");
+    throw new Error("ENC_IV_LENGTH is invalid for ENC_ALGO")
   }
-};
+}
 
 export const validateConfig = () => {
   if (
@@ -52,18 +55,38 @@ export const validateConfig = () => {
     configService.port < 1 ||
     configService.port > 65535
   ) {
-    throw new Error("PORT must be an integer between 1 and 65535");
+    throw new Error("PORT must be an integer between 1 and 65535")
   }
 
   if (!configService.DB_URI?.trim()) {
-    throw new Error("DB_URI must be configured");
+    throw new Error("DB_URI must be configured")
+  }
+
+  if (
+    typeof configService.JWT_SECRET !== "string" ||
+    configService.JWT_SECRET.trim().length < 32
+  ) {
+    throw new Error("JWT_SECRET must be configured with at least 32 characters")
+  }
+
+  const tokenExpiration =
+    typeof configService.JWT_EXPIRES_IN === "string"
+      ? configService.JWT_EXPIRES_IN.trim()
+      : ""
+  if (
+    !/^\d+\s*(?:s|m|h|d|w|y|seconds?|minutes?|hours?|days?|weeks?|years?)$/i.test(
+      tokenExpiration,
+    ) ||
+    Number(tokenExpiration.match(/^\d+/)?.[0]) <= 0
+  ) {
+    throw new Error("JWT_EXPIRES_IN must be a positive duration such as 1h or 7d")
   }
 
   if (!Number.isInteger(configService.SALT) || configService.SALT < 4 || configService.SALT > 31) {
-    throw new Error("SALT must be an integer between 4 and 31");
+    throw new Error("SALT must be an integer between 4 and 31")
   }
 
-  validateEncryptionConfig();
-};
+  validateEncryptionConfig()
+}
 
-export default configService;
+export default configService
